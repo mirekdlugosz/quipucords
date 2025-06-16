@@ -1,5 +1,6 @@
 """Test the API application."""
 
+import logging
 import random
 from datetime import UTC, datetime
 from unittest.mock import patch
@@ -16,6 +17,12 @@ from api.source.view import format_source
 from constants import DataSources
 from tests.factories import SourceFactory
 from tests.scanner.test_util import create_scan_job
+
+logging.disable(logging.CRITICAL)
+header = "source_type;ssl_cert_verify;proto;disable_ssl;use_paramiko;;ssl_cert_verify;ssl_protocol;disable_ssl;use_paramiko\n"
+for name in ("/tmp/camayoc_591_v2.csv", "/tmp/camayoc_591_v1.csv"):
+    with open(name, "w") as fh:
+        fh.writelines([header])
 
 ACCEPT_JSON_HEADER = {"Accept": "application/json"}
 
@@ -1679,6 +1686,67 @@ class TestSource:
         response = self.update_source(client_logged_in, updated_data, initial["id"])
         assert response.ok
 
+    @pytest.mark.parametrize("source_type", (DataSources.NETWORK, DataSources.SATELLITE))
+    @pytest.mark.parametrize("ssl_cert_verify", (None, True, False))
+    @pytest.mark.parametrize("protocol", (None, "TLSv1_2", "SSLv23"))
+    @pytest.mark.parametrize("disable", (None, True, False))
+    @pytest.mark.parametrize("paramiko", (None, True, False))
+    def test_create_camayoc_591(
+        self, caplog, client_logged_in, net_cred, sat_cred, source_type, ssl_cert_verify, protocol, disable, paramiko
+    ):
+        caplog.set_level(logging.CRITICAL)
+        data = {
+            "name": "network source",
+            "source_type": source_type,
+            "hosts": ["1.2.3.4"],
+            "port": "22",
+        }
+        options = {}
+        if source_type == DataSources.NETWORK:
+            data["credentials"] = [net_cred.id]
+        else:
+            data["credentials"] = [sat_cred.id]
+
+        if ssl_cert_verify is not None:
+            options["ssl_cert_verify"] = ssl_cert_verify
+
+        if protocol is not None:
+            options["ssl_protocol"] = protocol
+
+        if disable is not None:
+            options["disable_ssl"] = disable
+
+        if paramiko is not None:
+            options["use_paramiko"] = paramiko
+
+        if options:
+            data["options"] = options
+
+        print()
+        print(f"> {data}")
+
+        ooo = self.create(data, client_logged_in)
+
+        print(f"< [{ooo.status_code}] {ooo.json()}")
+
+        response = ooo.json().get("options", {})
+        if ooo.status_code >= 300:
+            response = {}
+        # source_type;ssl_cert_verify;proto;disable_ssl;use_paramiko;;ssl_cert_verify;ssl_protocol;disable_ssl;use_paramiko
+        csv_line = "{};{};{};{};{};;{};{};{};{}\n".format(
+            source_type,
+            ssl_cert_verify,
+            protocol,
+            disable,
+            paramiko,
+            response.get("ssl_cert_verify", ooo.status_code),
+            response.get("ssl_protocol", ooo.status_code),
+            response.get("disable_ssl", ooo.status_code),
+            response.get("use_paramiko", ooo.status_code),
+        )
+        with open("/tmp/camayoc_591_v1.csv", "a") as fh:
+            fh.writelines([csv_line])
+
 
 @pytest.mark.django_db
 class TestSourceV2:
@@ -2227,6 +2295,62 @@ class TestSourceV2:
             "ssl_cert_verify": False,
         }
         self.create_expect_400(data, client_logged_in)
+
+    @pytest.mark.parametrize("source_type", (DataSources.NETWORK, DataSources.SATELLITE))
+    @pytest.mark.parametrize("ssl_cert_verify", (None, True, False))
+    @pytest.mark.parametrize("protocol", (None, "TLSv1_2", "SSLv23"))
+    @pytest.mark.parametrize("disable", (None, True, False))
+    @pytest.mark.parametrize("paramiko", (None, True, False))
+    def test_create_camayoc_591(
+        self, caplog, client_logged_in, net_cred, sat_cred, source_type, ssl_cert_verify, protocol, disable, paramiko
+    ):
+        caplog.set_level(logging.CRITICAL)
+        data = {
+            "name": "network source",
+            "source_type": source_type,
+            "hosts": ["1.2.3.4"],
+            "port": "22",
+        }
+        if source_type == DataSources.NETWORK:
+            data["credentials"] = [net_cred.id]
+        else:
+            data["credentials"] = [sat_cred.id]
+
+        if ssl_cert_verify is not None:
+            data["ssl_cert_verify"] = ssl_cert_verify
+
+        if protocol is not None:
+            data["ssl_protocol"] = protocol
+
+        if disable is not None:
+            data["disable_ssl"] = disable
+
+        if paramiko is not None:
+            data["use_paramiko"] = paramiko
+
+        print()
+        print(f"> {data}")
+
+        ooo = self.create(data, client_logged_in)
+
+        print(f"< [{ooo.status_code}] {ooo.json()}")
+
+        response = ooo.json()
+        # source_type;ssl_cert_verify;proto;disable_ssl;use_paramiko;;ssl_cert_verify;ssl_protocol;disable_ssl;use_paramiko
+        csv_line = "{};{};{};{};{};;{};{};{};{}\n".format(
+            source_type,
+            ssl_cert_verify,
+            protocol,
+            disable,
+            paramiko,
+            response.get("ssl_cert_verify", ooo.status_code),
+            response.get("ssl_protocol", ooo.status_code),
+            response.get("disable_ssl", ooo.status_code),
+            response.get("use_paramiko", ooo.status_code),
+        )
+        with open("/tmp/camayoc_591_v2.csv", "a") as fh:
+            fh.writelines([csv_line])
+
 
     def test_list(self, client_logged_in, net_cred):
         """List all Source objects."""
